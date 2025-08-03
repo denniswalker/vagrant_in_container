@@ -1,0 +1,85 @@
+# Ignition Vagrantfile example
+# This example shows how to use vagrant-ignition with CoreOS/Flatcar Linux
+
+Vagrant.configure("2") do |config|
+  # Define the VM
+  config.vm.define "flatcar-server" do |vm|
+    # Use Flatcar Linux box
+    vm.vm.box = "flatcar-stable-amd64"
+    
+    # Configure ignition provider
+    vm.vm.provider :ignition do |ignition|
+      # Path to ignition configuration file
+      ignition.config = "ignition.yaml"
+      
+      # Optional: Custom ignition version
+      # ignition.version = "3.3.0"
+      
+      # Optional: Custom ignition URL
+      # ignition.url = "https://stable.release.flatcar-linux.net/amd64-usr/current/flatcar_production_pxe.vmlinuz"
+    end
+    
+    # Configure libvirt provider (for the underlying VM)
+    vm.vm.provider :libvirt do |libvirt|
+      # VM specifications
+      libvirt.memory = 4096
+      libvirt.cpus = 2
+      libvirt.disk_bus = "virtio"
+      libvirt.nic_model_type = "virtio"
+      
+      # Network configuration
+      libvirt.network_name = "default"
+      libvirt.management_network_name = "default"
+      
+      # Storage configuration
+      libvirt.storage_pool_name = "default"
+      
+      # Graphics configuration
+      libvirt.graphics_type = "vnc"
+      libvirt.graphics_port = 5901
+      libvirt.graphics_autoport = "yes"
+      libvirt.graphics_listen = "0.0.0.0"
+    end
+    
+    # Configure networking
+    config.vm.network "private_network", ip: "192.168.121.11"
+    
+    # Configure synced folders
+    config.vm.synced_folder ".", "/vagrant", disabled: false
+  end
+end
+
+# Example ignition.yaml file content (create this file separately):
+=begin
+# ignition.yaml
+variant: fcos
+version: 1.4.0
+passwd:
+  users:
+    - name: core
+      ssh_authorized_keys:
+        - ssh-rsa AAAAB3NzaC1yc2EAAAADAQABAAABAQC...
+storage:
+  files:
+    - path: /etc/hostname
+      mode: 0644
+      contents:
+        inline: flatcar-server
+    - path: /etc/systemd/network/20-enp1s0.network
+      mode: 0644
+      contents:
+        inline: |
+          [Match]
+          Name=enp1s0
+          
+          [Network]
+          Address=192.168.121.11/24
+          Gateway=192.168.121.1
+          DNS=8.8.8.8
+systemd:
+  units:
+    - name: docker.service
+      enabled: true
+    - name: sshd.service
+      enabled: true
+=end 

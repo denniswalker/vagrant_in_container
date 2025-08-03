@@ -1,0 +1,64 @@
+# Basic Vagrantfile example for libvirt provider
+# This example shows how to create a simple Ubuntu VM using vagrant-libvirt
+
+Vagrant.configure("2") do |config|
+  # Define the VM
+  config.vm.define "ubuntu-server" do |vm|
+    # Use Ubuntu 22.04 box
+    vm.vm.box = "generic/ubuntu2204"
+    
+    # Configure libvirt provider
+    vm.vm.provider :libvirt do |libvirt|
+      # VM specifications
+      libvirt.memory = 2048
+      libvirt.cpus = 2
+      libvirt.disk_bus = "virtio"
+      libvirt.nic_model_type = "virtio"
+      
+      # Network configuration
+      libvirt.network_name = "default"
+      libvirt.management_network_name = "default"
+      
+      # Storage configuration
+      libvirt.storage_pool_name = "default"
+      
+      # Graphics configuration (for VNC access)
+      libvirt.graphics_type = "vnc"
+      libvirt.graphics_port = 5900
+      libvirt.graphics_autoport = "yes"
+      libvirt.graphics_listen = "0.0.0.0"
+      
+      # Additional settings
+      libvirt.management_network_address = "192.168.121.0/24"
+      libvirt.management_network_autostart = true
+      libvirt.management_network_pci_bus = "0x06"
+      libvirt.management_network_pci_slot = "0x01"
+    end
+    
+    # Configure networking
+    config.vm.network "private_network", ip: "192.168.121.10"
+    
+    # Configure synced folders
+    config.vm.synced_folder ".", "/vagrant", disabled: false
+    
+    # Configure SSH
+    config.ssh.username = "vagrant"
+    config.ssh.password = "vagrant"
+    config.ssh.insert_key = true
+    
+    # Provisioning
+    config.vm.provision "shell", inline: <<-SHELL
+      # Update system
+      sudo apt-get update
+      sudo apt-get upgrade -y
+      
+      # Install common packages
+      sudo apt-get install -y curl wget git htop
+      
+      # Set hostname
+      sudo hostnamectl set-hostname ubuntu-server
+      
+      echo "Provisioning completed!"
+    SHELL
+  end
+end 
