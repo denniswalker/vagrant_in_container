@@ -70,7 +70,15 @@ vagrant up
 
 # SSH into VM
 vagrant ssh
+
+# List plugins
+vagrant plugin list
+
+# Check version
+vagrant version
 ```
+
+**Note**: The container is designed to work as a drop-in replacement for the vagrant command. When you run `vagrant <command>`, it executes the command inside the container with all the necessary plugins and dependencies pre-installed.
 
 ## Installation Methods
 
@@ -100,10 +108,9 @@ cd vagrant_container
        -v $(realpath "${PWD}"):${PWD} \
        -w "${PWD}" \
        --network host \
-       --entrypoint /bin/bash \
        --security-opt label=disable \
        localhost/vagrant-libvirt:latest \
-         vagrant $@
+         "$@"
    }
    ```
 
@@ -162,6 +169,32 @@ The script will automatically detect your libvirt installation and configure the
 - `LIBVIRT_DEFAULT_URI`: Libvirt connection URI (defaults to `qemu:///session`)
 
 ## Usage Examples
+
+### Direct Container Usage
+
+You can also run the container directly without the installation script:
+
+```bash
+# Run a single command
+podman run --rm \
+  -v /var/run/libvirt/:/var/run/libvirt/ \
+  -v ~/.vagrant.d:/.vagrant.d \
+  -v $(realpath "${PWD}"):${PWD} \
+  -w "${PWD}" \
+  --network host \
+  vagrant-libvirt:latest \
+  plugin list
+
+# Run with interactive shell
+podman run -it --rm \
+  -v /var/run/libvirt/:/var/run/libvirt/ \
+  -v ~/.vagrant.d:/.vagrant.d \
+  -v $(realpath "${PWD}"):${PWD} \
+  -w "${PWD}" \
+  --network host \
+  vagrant-libvirt:latest \
+  bash
+```
 
 ### Basic Libvirt VM
 

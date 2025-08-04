@@ -83,7 +83,7 @@ main() {
         exit 0
     fi
     
-    # If no arguments, show vagrant help
+    # If no arguments provided, show vagrant help
     if [ $# -eq 0 ]; then
         exec vagrant --help
         exit 0
@@ -96,7 +96,7 @@ main() {
             ;;
     esac
     
-    # Execute vagrant command
+    # Execute vagrant command with all arguments
     exec vagrant "$@"
 }
 

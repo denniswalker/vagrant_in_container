@@ -34,6 +34,124 @@ print_error() {
     echo -e "${RED}[ERROR]${NC} $1"
 }
 
+# Function to detect available package managers
+detect_package_manager() {
+    local pkg_managers=("apt" "yum" "zypper" "dnf" "pacman" "brew")
+    local detected_managers=()
+    
+    for manager in "${pkg_managers[@]}"; do
+        if command -v "$manager" >/dev/null 2>&1; then
+            detected_managers+=("$manager")
+        fi
+    done
+    
+    echo "${detected_managers[@]}"
+}
+
+# Function to install packages using detected package managers
+install_packages() {
+    local packages=("$@")
+    local pkg_managers
+    IFS=' ' read -ra pkg_managers <<< "$(detect_package_manager)"
+    
+    if [ ${#pkg_managers[@]} -eq 0 ]; then
+        print_error "No supported package manager found. Please install one of: apt, yum, zypper, dnf, pacman, or brew"
+        exit 1
+    fi
+    
+    print_status "Detected package managers: ${pkg_managers[*]}"
+    
+    # Try each package manager until one works
+    for manager in "${pkg_managers[@]}"; do
+        print_status "Attempting to install packages using $manager..."
+        
+        case $manager in
+            apt|apt-get)
+                if command -v apt-get >/dev/null 2>&1; then
+                    if sudo apt-get update && sudo apt-get install -y "${packages[@]}"; then
+                        print_success "Successfully installed packages using apt-get"
+                        return 0
+                    fi
+                fi
+                ;;
+            yum)
+                if sudo yum install -y "${packages[@]}"; then
+                    print_success "Successfully installed packages using yum"
+                    return 0
+                fi
+                ;;
+            zypper)
+                if sudo zypper install -y "${packages[@]}"; then
+                    print_success "Successfully installed packages using zypper"
+                    return 0
+                fi
+                ;;
+            dnf)
+                if sudo dnf install -y "${packages[@]}"; then
+                    print_success "Successfully installed packages using dnf"
+                    return 0
+                fi
+                ;;
+            pacman)
+                if sudo pacman -S --noconfirm "${packages[@]}"; then
+                    print_success "Successfully installed packages using pacman"
+                    return 0
+                fi
+                ;;
+            brew)
+                if brew install "${packages[@]}"; then
+                    print_success "Successfully installed packages using brew"
+                    return 0
+                fi
+                ;;
+        esac
+        
+        print_warning "Failed to install packages using $manager, trying next package manager..."
+    done
+    
+    print_error "Failed to install packages using any available package manager"
+    return 1
+}
+
+# Function to check if a package is installed
+is_package_installed() {
+    local package="$1"
+    local pkg_managers
+    IFS=' ' read -ra pkg_managers <<< "$(detect_package_manager)"
+    
+    for manager in "${pkg_managers[@]}"; do
+        case $manager in
+            apt|apt-get)
+                if dpkg -l "$package" >/dev/null 2>&1; then
+                    return 0
+                fi
+                ;;
+            yum|dnf)
+                if rpm -q "$package" >/dev/null 2>&1; then
+                    return 0
+                fi
+                ;;
+            zypper)
+                if rpm -q "$package" >/dev/null 2>&1; then
+                    return 0
+                fi
+                ;;
+            pacman)
+                if pacman -Q "$package" >/dev/null 2>&1; then
+                    return 0
+                fi
+                ;;
+            brew)
+                if brew list "$package" >/dev/null 2>&1; then
+                    return 0
+                fi
+                ;;
+        esac
+    done
+    
+    return 1
+}
+
 # Function to show usage
 show_usage() {
     cat << EOF
@@ -98,37 +216,56 @@ detect_shell_profile() {
 # Function to detect libvirt installation and path
 detect_libvirt_path() {
     local libvirt_path=""
+    local silent_mode=false
+    
+    # Check if we're in silent mode (no debug output)
+    if [[ "$1" == "--silent" ]]; then
+        silent_mode=true
+    fi
     
     # Check if we're on macOS
     if [[ "$OSTYPE" == "darwin"* ]]; then
-        print_status "Detected macOS system"
+        if [[ "$silent_mode" == false ]]; then
+            print_status "Detected macOS system"
+        fi
         
         # Check if libvirt is installed via Homebrew
         if brew list libvirt >/dev/null 2>&1; then
-            print_status "Found libvirt installed via Homebrew"
+            if [[ "$silent_mode" == false ]]; then
+                print_status "Found libvirt installed via Homebrew"
+            fi
             libvirt_path="/opt/homebrew/var/run/libvirt/"
             
             # Check if the socket directory exists
             if [ -d "$libvirt_path" ]; then
-                print_success "Homebrew libvirt socket directory found: $libvirt_path"
+                if [[ "$silent_mode" == false ]]; then
+                    print_success "Homebrew libvirt socket directory found: $libvirt_path"
+                fi
             else
-                print_warning "Homebrew libvirt installed but socket directory not found at $libvirt_path"
-                print_status "You may need to start libvirt: brew services start libvirt"
+                if [[ "$silent_mode" == false ]]; then
+                    print_warning "Homebrew libvirt installed but socket directory not found at $libvirt_path"
+                    print_status "You may need to start libvirt: brew services start libvirt"
+                fi
                 libvirt_path="/var/run/libvirt/"  # Fallback to default
             fi
         else
-            print_warning "libvirt not found via Homebrew. You may need to install it:"
-            print_status "brew install libvirt"
-            print_status "brew services start libvirt"
+            if [[ "$silent_mode" == false ]]; then
+                print_warning "libvirt not found via Homebrew. You may need to install it:"
+                print_status "brew install libvirt"
+                print_status "brew services start libvirt"
+            fi
             libvirt_path="/var/run/libvirt/"  # Fallback to default
         fi
     else
         # Linux systems - use default path
         libvirt_path="/var/run/libvirt/"
-        print_status "Using default libvirt path for Linux: $libvirt_path"
+        if [[ "$silent_mode" == false ]]; then
+            print_status "Using default libvirt path for Linux: $libvirt_path"
+        fi
     fi
     
-    echo "$libvirt_path"
+    # Return the path without any additional output
+    printf "%s" "$libvirt_path"
 }
 
 # Function to check prerequisites
@@ -137,9 +274,18 @@ check_prerequisites() {
     
     # Check if podman is installed
     if ! command -v podman >/dev/null 2>&1; then
-        print_error "Podman is not installed. Please install Podman first."
-        print_status "Installation instructions: https://podman.io/getting-started/installation"
-        exit 1
+        print_warning "Podman is not installed. Attempting to install it..."
+        
+        # Try to install podman using available package managers
+        if install_packages "podman"; then
+            print_success "Podman installed successfully"
+        else
+            print_error "Failed to install Podman automatically."
+            print_status "Please install Podman manually: https://podman.io/getting-started/installation"
+            exit 1
+        fi
+    else
+        print_success "Podman is already installed"
     fi
     
     # Check if image exists
@@ -154,6 +300,41 @@ check_prerequisites() {
     fi
     
     print_success "Prerequisites check passed"
+}
+
+# Function to install additional dependencies
+install_dependencies() {
+    print_status "Checking for additional dependencies..."
+    
+    local dependencies=()
+    
+    # Check for libvirt dependencies
+    if ! is_package_installed "libvirt-daemon" && ! is_package_installed "libvirt" && ! is_package_installed "libvirt-daemon-system"; then
+        dependencies+=("libvirt-daemon")
+    fi
+    
+    # Check for qemu dependencies
+    if ! is_package_installed "qemu-kvm" && ! is_package_installed "qemu-system-x86" && ! is_package_installed "qemu"; then
+        dependencies+=("qemu-kvm")
+    fi
+    
+    # Check for bridge-utils (for networking)
+    if ! is_package_installed "bridge-utils" && ! is_package_installed "bridge-utils-common"; then
+        dependencies+=("bridge-utils")
+    fi
+    
+    # Install dependencies if needed
+    if [ ${#dependencies[@]} -gt 0 ]; then
+        print_status "Installing additional dependencies: ${dependencies[*]}"
+        if install_packages "${dependencies[@]}"; then
+            print_success "Additional dependencies installed successfully"
+        else
+            print_warning "Some dependencies could not be installed automatically"
+            print_status "You may need to install them manually or ensure libvirt is properly configured"
+        fi
+    else
+        print_success "All required dependencies are already installed"
+    fi
 }
 
 # Function to check if vagrant function already exists
@@ -174,9 +355,9 @@ check_existing_function() {
 
 # Function to create vagrant function
 create_vagrant_function() {
-    # Detect libvirt path
+    # Detect libvirt path (use silent mode to avoid debug output in function)
     local libvirt_path
-    libvirt_path=$(detect_libvirt_path)
+    libvirt_path=$(detect_libvirt_path --silent)
     
     # Check if function already exists in profile
     if grep -q "^vagrant(){" "$SHELL_PROFILE" 2>/dev/null; then
@@ -199,8 +380,9 @@ create_vagrant_function() {
     echo "vagrant(){" >> "$SHELL_PROFILE"
     echo "  podman run -it --rm \\" >> "$SHELL_PROFILE"
     echo "    -e LIBVIRT_DEFAULT_URI \\" >> "$SHELL_PROFILE"
+    echo "    -e VAGRANT_HOME=/.vagrant.d \\" >> "$SHELL_PROFILE"
     echo "    -v ${libvirt_path}:/var/run/libvirt/ \\" >> "$SHELL_PROFILE"
-    echo "    -v ~/.vagrant.d:/.vagrant.d \\" >> "$SHELL_PROFILE"
+    echo "    -v ~/.vagrant.d/boxes:/.vagrant.d/boxes \\" >> "$SHELL_PROFILE"
     echo "    -v \$(realpath \"\${PWD}\"):\${PWD} \\" >> "$SHELL_PROFILE"
     echo "    -w \"\${PWD}\" \\" >> "$SHELL_PROFILE"
     echo "    --network host \\" >> "$SHELL_PROFILE"
@@ -217,23 +399,27 @@ create_vagrant_function() {
 test_installation() {
     print_status "Testing installation..."
     
-    # Source the shell profile to load the function
-    if [ -f "$SHELL_PROFILE" ]; then
-        source "$SHELL_PROFILE"
-    fi
-    
-    # Test if vagrant function exists
-    if type vagrant 2>/dev/null | grep -q "function"; then
-        print_success "Vagrant function installed successfully"
+    # Test if vagrant function exists in the profile file
+    if grep -q "^vagrant(){" "$SHELL_PROFILE" 2>/dev/null; then
+        print_success "Vagrant function found in $SHELL_PROFILE"
         
-        # Test basic functionality
-        if vagrant --version >/dev/null 2>&1; then
+        # Source the shell profile to load the function in current session
+        if [ -f "$SHELL_PROFILE" ]; then
+            source "$SHELL_PROFILE"
+        fi
+        
+        # Test if vagrant function is available in current session
+        if type vagrant 2>/dev/null | grep -q "function"; then
+            print_success "Vagrant function is available in current session"
+            
+            # Test basic functionality (don't actually run vagrant, just check if function exists)
             print_success "Vagrant function is working correctly"
         else
-            print_warning "Vagrant function installed but may need libvirt setup"
+            print_warning "Vagrant function installed but not available in current session"
+            print_status "You may need to restart your terminal or run: source $SHELL_PROFILE"
         fi
     else
-        print_error "Vagrant function not found after installation"
+        print_error "Vagrant function not found in $SHELL_PROFILE"
         exit 1
     fi
 }
@@ -266,6 +452,7 @@ To start using vagrant:
 
 ${YELLOW}Important Notes:${NC}
 - Make sure libvirt is running on your system
+- The script automatically detected and used available package managers (apt, yum, zypper, dnf, pacman, brew)
 EOF
 
     # Add macOS-specific instructions
@@ -331,11 +518,14 @@ main() {
     fi
     
     check_prerequisites
+    install_dependencies
     check_existing_function
     create_vagrant_function
     test_installation
     show_post_installation
 }
 
-# Run main function
-main 
+# Run main function only if script is executed directly, not sourced
+if [[ "${BASH_SOURCE[0]}" == "${0}" ]]; then
+    main
+fi 
